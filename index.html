@@ -28,6 +28,14 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 .nav-item.active svg{opacity:1}
 .nav-sep{height:1px;background:rgba(255,255,255,.08);margin:8px 0}
 .main{padding:32px;max-width:960px}
+html.embed .app{grid-template-columns:1fr;grid-template-rows:auto 1fr}
+html.embed .sidebar{position:static;height:auto;flex-direction:row;align-items:center;flex-wrap:wrap;gap:6px;padding:10px 24px;background:var(--surface);border-bottom:1px solid var(--border);overflow:visible}
+html.embed .logo{display:none}
+html.embed .nav-sep{width:1px;height:20px;margin:0 6px}
+html.embed .nav-item{width:auto;padding:7px 14px;color:var(--text2)}
+html.embed .nav-item:hover{background:var(--surface2);color:var(--text)}
+html.embed .nav-item.active{background:var(--text);color:#fff;box-shadow:none}
+
 .page{display:none}.page.active{display:block}
 .page-header{margin-bottom:24px}
 .page-title{font-size:22px;font-weight:600;letter-spacing:-.4px}
@@ -101,6 +109,7 @@ tbody tr:hover td{background:var(--surface2)}
 .proj-view-header{padding:12px 18px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px}
 .proj-view-body{padding:14px 18px;display:flex;flex-direction:column;gap:12px;background:var(--surface)}
 </style>
+<script>if(window.self!==window.top||/[?&]embed=1/.test(location.search))document.documentElement.classList.add('embed');</script>
 </head>
 <body>
 <div class="app">

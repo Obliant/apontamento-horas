@@ -740,9 +740,32 @@ function calcDistCorrect(projsComTeto, mesIni, mesFim, capacidadeDia){
   const totais={};projsComTeto.forEach(p=>totais[p.nome]=0);
   const ordemLista={};projsComTeto.forEach((p,i)=>ordemLista[p.nome]=i);
 
+  // PRIORIDADE (2026-10-06): projeto com `maxHorasDia` (ex.: Torre Saúde — o
+  // cliente TOTVS aceita no máximo 8h/dia) é planejado PRIMEIRO. Ele ocupa
+  // N = ceil(teto / maxHorasDia) dias úteis, espalhados de forma uniforme pelo
+  // mês (não empilhados no começo), com no máximo `maxHorasDia` por dia; o
+  // último dia leva o resto. Os demais projetos só preenchem o que sobra de
+  // cada dia — a regra de urgência/rodízio abaixo vale só entre eles.
+  const reservado={};
+  projsComTeto.filter(p=>p.maxHorasDia>0).forEach(p=>{
+    const dias=projDays[p.nome];
+    const n=Math.min(dias.length,Math.ceil(alloc[p.nome]/p.maxHorasDia-0.001));
+    let falta=alloc[p.nome];
+    for(let i=0;i<n;i++){
+      const day=dias[Math.min(dias.length-1,Math.floor((i+0.5)*dias.length/n))];
+      const h=round05(Math.min(p.maxHorasDia,falta));
+      if(h<=0)break;
+      result[p.nome][day]=rnd2((result[p.nome][day]||0)+h);
+      totais[p.nome]=rnd2(totais[p.nome]+h);
+      restante[p.nome]=rnd2(restante[p.nome]-h);
+      reservado[day]=rnd2((reservado[day]||0)+h);
+      falta=rnd2(falta-h);
+    }
+  });
+
   allWD.forEach(day=>{
-    let cap=capacidadeDia;
-    const usadoHoje={};projsComTeto.forEach(p=>usadoHoje[p.nome]=0);
+    let cap=rnd2(capacidadeDia-(reservado[day]||0));
+    const usadoHoje={};projsComTeto.forEach(p=>usadoHoje[p.nome]=result[p.nome][day]||0);
     while(cap>0.001){
       const elegiveis=projsComTeto.filter(p=>
         p.ini<=day&&p.fim>=day&&restante[p.nome]>0.001&&

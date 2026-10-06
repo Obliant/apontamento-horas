@@ -1401,6 +1401,19 @@ function exportData(){
 }
 function clearData(){if(!confirm('Apagar TODOS os dados?'))return;[PROJ_KEY,HIST_KEY,FEXT_KEY].forEach(k=>localStorage.removeItem(k));location.reload();}
 // ── INIT ──────────────────────────────────────────────────────────────
+// Torre Saúde: máx. 8h/dia (a distribuição espalha as horas pelos dias úteis do mês).
+// Aplicado uma única vez; depois dá pra mudar em Projetos → editar → "máx. horas/dia".
+const MIG_TORRE8_KEY='obl_v5_mig_torre_max8';
+function aplicarLimiteDiarioTorreSaude(){
+  if(localStorage.getItem(MIG_TORRE8_KEY)) return;
+  const norm=t=>(t||'').normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase();
+  const projs=loadProjs();
+  const alvo=projs.filter(p=>{const n=norm(p.nome);return n.includes('totvs')&&n.includes('saude');});
+  if(!alvo.length) return;
+  alvo.forEach(p=>{ if(!p.maxHorasDia) p.maxHorasDia=8; });
+  saveProjs(projs);
+  localStorage.setItem(MIG_TORRE8_KEY,'1');
+}
 function init(){
   if(!loadProjs().length){
     saveProjs([
@@ -1410,6 +1423,7 @@ function init(){
       {nome:'Café Orfeu',cor:'#1565C0',ini:'2026-06-01',fim:'2026-06-15',mensal:{'2026-06':40}},
     ]);
   }
+  aplicarLimiteDiarioTorreSaude();
   sincronizarConfirmadosDoPipeline();
   renderProjList();
 }

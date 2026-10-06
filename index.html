@@ -751,6 +751,22 @@ function calcDistCorrect(projsComTeto, mesIni, mesFim, capacidadeDia){
     const dias=projDays[p.nome];
     const n=Math.min(dias.length,Math.ceil(alloc[p.nome]/p.maxHorasDia-0.001));
     let falta=alloc[p.nome];
+    // Mês com reserva já combinada com o cliente (`fixoDias[AAAA-MM] = {dia: horas}`):
+    // usa exatamente esses dias; só o que sobrar (se o teto for maior) cai na regra normal.
+    const fixo=p.fixoDias&&p.fixoDias[mesIni.slice(0,7)];
+    if(fixo){
+      Object.keys(fixo).sort().forEach(day=>{
+        if(falta<=0.001||!dias.includes(day))return;
+        const h=round05(Math.min(p.maxHorasDia,fixo[day],falta));
+        if(h<=0)return;
+        result[p.nome][day]=rnd2((result[p.nome][day]||0)+h);
+        totais[p.nome]=rnd2(totais[p.nome]+h);
+        restante[p.nome]=rnd2(restante[p.nome]-h);
+        reservado[day]=rnd2((reservado[day]||0)+h);
+        falta=rnd2(falta-h);
+      });
+      return;
+    }
     for(let i=0;i<n;i++){
       const day=dias[Math.min(dias.length-1,Math.floor((i+0.5)*dias.length/n))];
       const h=round05(Math.min(p.maxHorasDia,falta));
@@ -1437,6 +1453,66 @@ function aplicarLimiteDiarioTorreSaude(){
   saveProjs(projs);
   localStorage.setItem(MIG_TORRE8_KEY,'1');
 }
+// Outubro/2026: a Torre Saúde segue a reserva já combinada com a TOTVS (dia a dia).
+// Ajusta SÓ os blocos da Torre no planejamento de outubro que já existe — Teleinfo,
+// Seatrium e os demais ficam exatamente como estão. Aplicado uma única vez.
+// Os outros meses seguem a regra normal (máx. 8h/dia, espalhado pelo mês).
+const MIG_OUT26_KEY='obl_v5_mig_out26_plano';
+const TORRE_OUT26={'2026-10-05':8,'2026-10-06':8,'2026-10-07':8,'2026-10-08':8,'2026-10-09':8,'2026-10-14':8,'2026-10-15':8,'2026-10-16':8,'2026-10-20':8,'2026-10-21':8,'2026-10-22':8,'2026-10-26':8,'2026-10-27':8,'2026-10-28':8,'2026-10-29':4.5,'2026-10-30':1};
+function normNome(t){ return (t||'').normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase().trim(); }
+function ehTorreSaude(nome){ const n=normNome(nome); return n.includes('totvs')&&n.includes('saude'); }
+// Encaixa `hrs` horas nos primeiros horários livres do dia (pula almoço e blocos de outros projetos).
+function blocosNosLivres(ocupados,expIni,almIni,almFim,hrs){
+  const out=[]; let cur=expIni, rem=hrs, guard=0;
+  const occ=ocupados.slice().sort((a,b)=>a[0]-b[0]);
+  while(rem>0.001&&guard++<60){
+    if(cur>=almIni&&cur<almFim) cur=almFim;
+    const ov=occ.find(o=>cur>=o[0]-0.001&&cur<o[1]-0.001);
+    if(ov){ cur=ov[1]; continue; }
+    let end=cur<almIni?almIni:Infinity;
+    occ.forEach(o=>{ if(o[0]>cur+0.001&&o[0]<end) end=o[0]; });
+    const used=Math.min(rem,end-cur);
+    if(used>0.001){ out.push({de:h2t(cur),ate:h2t(rnd2(cur+used)),hrs:rnd2(used)}); cur=rnd2(cur+used); rem=rnd2(rem-used); }
+    else cur=end;
+  }
+  return out;
+}
+function ajustarPlanoOutubroTorre(torreNome,torreCor){
+  const hist=loadHist();
+  const entry=hist.find(h=>h.mk==='2026-10');
+  if(!entry||!entry.rows) return;
+  const expIni=t2h((document.getElementById('a-ini')||{}).value||'08:00');
+  const almIni=t2h((document.getElementById('a-alm-i')||{}).value||'12:00');
+  const almFim=t2h((document.getElementById('a-alm-f')||{}).value||'13:00');
+  let totTorre=0;
+  entry.rows.forEach(r=>{
+    if(r.tipo!=='workday'&&r.tipo!=='noalloc') return;
+    const outros=(r.blocks||[]).filter(b=>!ehTorreSaude(b.nome));
+    const alvo=TORRE_OUT26[r.data]||0;
+    const ocupados=outros.map(b=>[t2h(b.de),t2h(b.ate)]);
+    const novos=alvo>0?blocosNosLivres(ocupados,expIni,almIni,almFim,alvo).map(b=>({nome:torreNome,cor:torreCor,de:b.de,ate:b.ate,hrs:b.hrs})):[];
+    const blocks=outros.concat(novos).sort((a,b)=>t2h(a.de)-t2h(b.de));
+    totTorre+=novos.reduce((s,b)=>s+b.hrs,0);
+    if(blocks.length){ r.tipo='workday'; r.blocks=blocks; r.dayTotal=rnd2(blocks.reduce((s,b)=>s+b.hrs,0)); }
+    else { r.tipo='noalloc'; delete r.blocks; delete r.dayTotal; }
+  });
+  entry.projHrs=entry.projHrs||{};
+  const ph=entry.projHrs[torreNome]||{teto:117.5};
+  entry.projHrs[torreNome]={teto:ph.teto!=null?ph.teto:117.5,reportado:rnd2(totTorre)};
+  entry.totalGeral=rnd2(entry.rows.reduce((s,r)=>s+(r.tipo==='workday'?r.dayTotal:0),0));
+  saveHist(hist);
+}
+function aplicarOutubro2026(){
+  if(localStorage.getItem(MIG_OUT26_KEY)) return;
+  const projs=loadProjs();
+  const torre=projs.find(p=>ehTorreSaude(p.nome));
+  if(!torre) return;
+  torre.maxHorasDia=torre.maxHorasDia||8;
+  torre.fixoDias=Object.assign({},torre.fixoDias,{'2026-10':TORRE_OUT26});
+  saveProjs(projs);
+  ajustarPlanoOutubroTorre(torre.nome,torre.cor);
+  localStorage.setItem(MIG_OUT26_KEY,'1');
+}
 function init(){
   if(!loadProjs().length){
     saveProjs([
@@ -1447,6 +1523,7 @@ function init(){
     ]);
   }
   aplicarLimiteDiarioTorreSaude();
+  aplicarOutubro2026();
   sincronizarConfirmadosDoPipeline();
   renderProjList();
 }

@@ -1513,6 +1513,40 @@ function aplicarOutubro2026(){
   ajustarPlanoOutubroTorre(torre.nome,torre.cor);
   localStorage.setItem(MIG_OUT26_KEY,'1');
 }
+// Outubro/2026 — corrige só os dias em que a Torre Saúde ficou com horário impossível (passando do fim do
+// expediente, até depois da meia-noite). Nesses dias a Torre volta ao horário padrão do dia (ex.: 08:00–12:00 e
+// 13:00–17:00 para 8h), com as MESMAS horas da lista. Teleinfo, Seatrium e os demais não são tocados.
+const MIG_OUT26_HOR_KEY='obl_v5_mig_out26_horarios';
+function corrigirHorariosTorreOutubro(){
+  if(localStorage.getItem(MIG_OUT26_HOR_KEY)) return;
+  const hist=loadHist();
+  const entry=hist.find(h=>h.mk==='2026-10');
+  if(!entry||!entry.rows){ return; }
+  const expIni=t2h((document.getElementById('a-ini')||{}).value||'08:00');
+  const expFim=t2h((document.getElementById('a-fim')||{}).value||'18:00');
+  const almIni=t2h((document.getElementById('a-alm-i')||{}).value||'12:00');
+  const almFim=t2h((document.getElementById('a-alm-f')||{}).value||'13:00');
+  let mexeu=0;
+  entry.rows.forEach(r=>{
+    if(r.tipo!=='workday'||!r.blocks) return;
+    const torre=r.blocks.filter(b=>ehTorreSaude(b.nome));
+    if(!torre.length) return;
+    const invalido=torre.some(b=>t2h(b.ate)>expFim+0.001||t2h(b.de)<expIni-0.001||t2h(b.ate)<=t2h(b.de));
+    if(!invalido) return;
+    const hrs=rnd2(torre.reduce((s,b)=>s+b.hrs,0));
+    const base=torre[0];
+    const novos=blocosNosLivres([],expIni,almIni,almFim,hrs).map(b=>({nome:base.nome,cor:base.cor,de:b.de,ate:b.ate,hrs:b.hrs}));
+    const outros=r.blocks.filter(b=>!ehTorreSaude(b.nome));
+    r.blocks=outros.concat(novos).sort((a,b)=>t2h(a.de)-t2h(b.de));
+    r.dayTotal=rnd2(r.blocks.reduce((s,b)=>s+b.hrs,0));
+    mexeu++;
+  });
+  if(mexeu){
+    entry.totalGeral=rnd2(entry.rows.reduce((s,r)=>s+(r.tipo==='workday'?r.dayTotal:0),0));
+    saveHist(hist);
+  }
+  localStorage.setItem(MIG_OUT26_HOR_KEY,'1');
+}
 function init(){
   if(!loadProjs().length){
     saveProjs([
@@ -1524,6 +1558,7 @@ function init(){
   }
   aplicarLimiteDiarioTorreSaude();
   aplicarOutubro2026();
+  corrigirHorariosTorreOutubro();
   sincronizarConfirmadosDoPipeline();
   renderProjList();
 }

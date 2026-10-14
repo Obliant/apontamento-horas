@@ -571,21 +571,47 @@ function saveEditProj(nome){
   renderProjList();
 }
 
+// Situação do projeto: ativo / pausado / encerrado / cancelado. Fora de "ativo", o projeto deixa de entrar no
+// planejamento A PARTIR do mês escolhido (os meses anteriores continuam como estão).
+const STATUS_PROJ={ativo:'Ativo',pausado:'Pausado',encerrado:'Encerrado',cancelado:'Cancelado'};
+function projEntraNoMes(p,mk){
+  if(!p.status||p.status==='ativo') return true;
+  return mk<(p.statusAPartir||'0000-00');
+}
+function setStatusProj(nome,novo){
+  const projs=loadProjs(); const p=projs.find(x=>x.nome===nome); if(!p) return;
+  if(novo==='ativo'){ delete p.status; delete p.statusAPartir; }
+  else{
+    const d=new Date(); d.setDate(1); d.setMonth(d.getMonth()+1);
+    const sug=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');
+    const v=prompt('Marcar "'+nome+'" como '+STATUS_PROJ[novo].toUpperCase()+'.\n\nA partir de qual mês ele deixa de entrar no planejamento? (AAAA-MM)\nOs meses anteriores continuam como estão.',sug);
+    if(v===null){ renderProjList(); return; }
+    if(!/^\d{4}-(0[1-9]|1[0-2])$/.test(v.trim())){ alert('Use o formato AAAA-MM, por exemplo 2026-11.'); renderProjList(); return; }
+    p.status=novo; p.statusAPartir=v.trim();
+  }
+  saveProjs(projs); renderProjList();
+}
 function renderProjList(){
   const projs=loadProjs();
   const el=document.getElementById('proj-list');
   if(!projs.length){el.innerHTML='<div style="padding:20px 0;text-align:center;color:var(--text3);font-size:13px">Nenhum projeto cadastrado.</div>';return}
-  let html='<div class="table-wrap"><table><thead><tr><th>Projeto</th><th>Período</th><th>Horas mensais previstas</th><th style="width:80px"></th></tr></thead><tbody>';
+  let html='<div class="table-wrap"><table><thead><tr><th>Projeto</th><th>Período</th><th>Horas mensais previstas</th><th>Situação</th><th style="width:80px"></th></tr></thead><tbody>';
   projs.forEach(p=>{
     const isEditing=editingProj===p.nome;
     const mensalEntries=Object.entries(p.mensal||{}).filter(([,v])=>v>0).sort(([a],[b])=>a.localeCompare(b));
     const mensalStr=mensalEntries.length?mensalEntries.map(([mk,v])=>{const[y,m]=mk.split('-');return`${MESES_SHORT[+m-1]}/${y.slice(2)}: ${v}h`}).join(' · '):'—';
     const pendenteBadge=p.pendenteConfirmacao?'<span class="pendente-badge">🔔 Confirmar horas do mês</span>':'';
     const maxHorasBadge=p.maxHorasDia?`<span class="badge" style="background:var(--amber-bg);color:var(--amber);margin-left:6px" title="Sistema do cliente não aceita mais que isso por dia">⏱ máx ${p.maxHorasDia}h/dia</span>`:'';
-    html+=`<tr style="${isEditing?'background:var(--blue-bg)':(p.pendenteConfirmacao?'background:var(--amber-bg)':'')}">
+    const st=p.status&&p.status!=='ativo'?p.status:'ativo';
+    const stDesde=st!=='ativo'&&p.statusAPartir?(function(){const[y,m]=p.statusAPartir.split('-');return 'sai do planejamento em '+MESES_SHORT[+m-1]+'/'+y.slice(2);})():'';
+    const stCel='<select class="sel-status st-'+st+'" onchange="setStatusProj(\''+escA(p.nome)+'\',this.value)" title="Situação do projeto" style="width:auto;padding:4px 8px;font-size:12px">'
+      +Object.keys(STATUS_PROJ).map(k=>'<option value="'+k+'"'+(k===st?' selected':'')+'>'+STATUS_PROJ[k]+'</option>').join('')+'</select>'
+      +(stDesde?'<div style="font-size:11px;color:var(--text3);margin-top:3px">'+stDesde+'</div>':'');
+    html+=`<tr style="${isEditing?'background:var(--blue-bg)':(p.pendenteConfirmacao?'background:var(--amber-bg)':'')}${st!=='ativo'?';opacity:.6':''}">
       <td><span class="dot" style="background:${p.cor};margin-right:8px"></span><strong>${esc(p.nome)}</strong>${pendenteBadge}${maxHorasBadge}</td>
       <td style="font-size:12px;color:var(--text2)">${fmtD(p.ini)} → ${fmtD(p.fim)}</td>
       <td style="font-size:12px;color:var(--text2);max-width:300px">${mensalStr}</td>
+      <td>${stCel}</td>
       <td>
         <div style="display:flex;gap:4px">
           <button class="btn btn-sm btn-icon" title="Editar" onclick="startEdit('${escA(p.nome)}')">
@@ -643,7 +669,7 @@ function onMesChange(){
   if(!mk){sec.style.display='none';empty.style.display='';return}
   const{mesIni,mesFim,mLabel,m,y}=getMesInfo(mk);
   const allDays=getWorkdays(mesIni,mesFim);
-  const active=projs.filter(p=>new Date(p.ini+'T12:00:00')<=new Date(mesFim+'T12:00:00')&&new Date(p.fim+'T12:00:00')>=new Date(mesIni+'T12:00:00'));
+  const active=projs.filter(p=>new Date(p.ini+'T12:00:00')<=new Date(mesFim+'T12:00:00')&&new Date(p.fim+'T12:00:00')>=new Date(mesIni+'T12:00:00')&&projEntraNoMes(p,mk));
   if(!active.length){sec.style.display='none';empty.innerHTML=`<span style="color:var(--text3)">Nenhum projeto ativo em ${mLabel}.</span>`;empty.style.display='';return}
   empty.style.display='none';sec.style.display='';
 
@@ -851,7 +877,7 @@ function gerar(){
   const almIni=t2h(document.getElementById('a-alm-i').value||'12:00');
   const almFim=t2h(document.getElementById('a-alm-f').value||'13:00');
   const projs=loadProjs();
-  const active=projs.filter(p=>new Date(p.ini+'T12:00:00')<=new Date(mesFim+'T12:00:00')&&new Date(p.fim+'T12:00:00')>=new Date(mesIni+'T12:00:00'));
+  const active=projs.filter(p=>new Date(p.ini+'T12:00:00')<=new Date(mesFim+'T12:00:00')&&new Date(p.fim+'T12:00:00')>=new Date(mesIni+'T12:00:00')&&projEntraNoMes(p,mk));
 
   let anyHrs=false;
   const projsComTeto=[];

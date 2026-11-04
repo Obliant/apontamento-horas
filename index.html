@@ -1082,7 +1082,12 @@ function buildResumo(entry){
   // sempre batam entre si, e que futuras mudanças no algoritmo de distribuição
   // sejam refletidas aqui automaticamente, sem duplicar a lógica.)
   const rowsByDay={};entry.rows.forEach(r=>{if(r.tipo==='workday')rowsByDay[r.data]=r;});
-  const dayInfo=allWD.map(day=>{
+  // Feriados entram na sequência (sem horas) para quebrar os grupos em massa: o
+  // período lançado no sistema oficial é corrido de segunda a sexta, feriado incluso.
+  const diasSeqComFeriado=[];
+  {const c=new Date(mesIni+'T12:00:00'),end=new Date(mesFim+'T12:00:00');
+   while(c<=end){if(c.getDay()>0&&c.getDay()<6)diasSeqComFeriado.push(ds(c));c.setDate(c.getDate()+1);}}
+  const dayInfo=diasSeqComFeriado.map(day=>{
     const tb=(rowsByDay[day]||{}).blocks||[];
     const patMap={};
     tb.forEach(b=>{patMap[b.nome]=rnd2((patMap[b.nome]||0)+b.hrs);});
@@ -1280,10 +1285,13 @@ function buildPorProjeto(entry){
     // isso, dois dias com o mesmo padrão de horário mas separados por dias
     // de outro projeto (normal agora que a distribuição roda entre eles)
     // seriam juntados num "grupo em massa" que não existe de verdade.
-    const todosDias=entry.rows.filter(r=>r.tipo==='workday');
+    // Feriado (e dia útil sem nenhuma alocação) também quebra o grupo: o lançamento
+    // em massa no sistema oficial vale para o período corrido de segunda a sexta,
+    // então um feriado no meio entraria como dia trabalhado se o grupo o atravessasse.
+    const todosDias=entry.rows.filter(r=>r.tipo!=='weekend');
     const grupos=[];let curG=null;
     todosDias.forEach(r=>{
-      const blocks=r.blocks.filter(b=>b.nome===proj.nome);
+      const blocks=r.tipo==='workday'?r.blocks.filter(b=>b.nome===proj.nome):[];
       if(!blocks.length){
         if(curG){grupos.push(curG);curG=null;}
         return;
